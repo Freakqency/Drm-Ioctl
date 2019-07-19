@@ -143,6 +143,8 @@ compat_drm_setunique(struct file *file, void *arg)
 		return error;
 
 	// XXX: do we need copyout and copying the fields here?
+	uq32.unique_len = uq64.unique_len;
+	uq32.unique = (char *)NETBSD32PTR64(uq64.unique);
 
         return error;
 }
@@ -338,7 +340,7 @@ typedef struct drm_buf_desc32 {
 	int low_mark;		 /**< Low water mark */
 	int high_mark;		 /**< High water mark */
 	int flags;
-	uint32_t agp_start;	/**< Start address in the AGP aperture */
+	uint32_t agp_start;	 /**< Start address in the AGP aperture */
 } drm_buf_desc32_t;
 
 static int 
@@ -349,9 +351,10 @@ compat_drm_addbufs(struct file *file, void *arg)
 	unsigned long agp_start;
 
 	// XXX: need copyin for arg?
-
+	if ((error = copyin(&buf64, arg, sizeof(buf64))) !=0)
+		return error;
 	// XXX: that will not compile? what is buf?
-	if (!buf || (error = !access_ok(VERIFY_WRITE, arg, sizeof(arg)) !=0))
+	if (!buf64 || (error = !access_ok(VERIFY_WRITE, arg, sizeof(arg)) !=0))
 		return error;
 
 	// XXX: agp_start is not initialized
@@ -359,7 +362,7 @@ compat_drm_addbufs(struct file *file, void *arg)
 		return error;
 
 	// XXX: That does not compile
-	arg->agp_start = agp_start;
+	arg.agp_start = agp_start;
 	agp_start = buf64.agp_start;
 
 	error = drm_ioctl(file, DRM_IOCTL_ADD_BUFS, &buf64);
@@ -386,13 +389,198 @@ compat_drm_markbufs(struct file *file, void *arg)
 		return error;
 
 	// XXX: this is backwards? b64. = b32.
-	b32.size = b64.size;
-	b32.low_mark = b64.low_mark;
-	b32.high_mark = b64.high_mark; 
+	b64.size = b32.size;
+	b64.low_mark = b32.low_mark;
+	b64.high_mark = b32.high_mark; 
 
 	return drm_ioctl(file, DRM_IOCTL_MARK_BUFS, &buf64);
 }
 
+typedef struct drm_buf_info32 {
+	int count;		/**< Entries in list */
+	uint32_t list;
+} drm_buf_info32_t;
+
+static int 
+compat_drm_infobufs(struct file *file, void *arg)
+{
+	drm_buf_info32_t req32;
+	//drm_buf_desc32_t __user *to;
+	drm_buf_desc32_t to;
+	struct drm_buf_info req64;
+	//struct drm_buf_desc __user *list;
+	struct drm_buf_desc list;
+	size_t nbytes;
+	int error;
+	int count, actual;
+
+	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
+		return error;
+
+	count = req32.count;
+	// XXX: How to handle these type casts?
+	//to = (drm_buf_desc32_t __user *) (unsigned long)req32.list;
+
+	if (count < 0)
+		count = 0;
+
+	if (count > 0
+	    && ( error = !access_ok(VERIFY_WRITE, to, count * sizeof(drm_buf_desc32_t))) != 0)
+		return error;
+
+	nbytes = sizeof(req64) + count * sizeof(struct drm_buf_desc);
+
+	// XXX: How to handle these type casts?
+	//list = (struct drm_buf_desc *) (req64 + 1);
+
+	count = req64.count;
+	list = req64.list;
+
+	error = drm_ioctl(file, DRM_IOCTL_INFO_BUFS, &req64);
+
+	if (error)
+		return error;
+
+
+	req64.count = actual;
+
+	if(count >= actual)
+		for(int i = 0; i < actual; ++i)
+			if((error = copyin(&to[i], &list[i], offset(struct drm_buf_desc, flags))) != 0)
+				return error;
+
+	acutal = arg.count;
+
+	return 0;
+}
+
+typedef struct drm_buf_pub32 {
+	int idx;		/**< Index into the master buffer list */
+	int total;		/**< Buffer size */
+	int used;		/**< Amount of buffer in use (for DMA) */
+	uint32_t address;	/**< Address of buffer */
+} drm_buf_pub32_t;
+
+typedef struct drm_buf_map32 {
+	int count;		/**< Length of the buffer list */
+	uint32_t virtual;	/**< Mmap'd area in user-virtual */
+	uint32_t list;		/**< Buffer information */
+} drm_buf_map32_t;
+
+static int 
+compat_drm_mapbufs(struct file *file, void *arg)
+{
+	drm_buf_map32_t req32;
+	//drm_buf_pub32_t __user *list32;
+	drm_buf_pub32_t list32;
+	struct drm_buf_map req64;
+	//struct drm_buf_pub __user *list;
+	struct drm_buf_pub list;
+	int error;
+	int count, actual;
+	size_t nbytes;
+	void addr;
+
+	if ((error = copyin(&req32, arg, sizeof(req32))) !=0)
+		return error;
+	count = req32.count;
+	
+	// XXX:Same type cast
+	//list32 = (void __user *)(unsigned long)req32.list;
+
+	nbytes = sizeof(req64) + count * sizeof(struct drm_buf_pub);
+
+	// XXX:Same type cast
+	//list = (struct drm_buf_pub *) (req64 + 1);
+
+	count = req64.count;
+	list = req64.list;
+
+	error = drm_ioctl(file, DRM_IOCTL_MAP_BUFS, &req64);
+
+	if (error)
+		return error;
+
+	req64.count = actual;
+
+	if (count >= actual)
+		for (int i=0; i < actual; ++i){
+			if ((error = copyin(&list32[i], &list[i], offsetof(struct drm_buf_pub, address))) !=0)
+				return error;
+			list[i].address = addr;
+			addr = list32[i].address;
+		}
+
+	actual = arg.count;
+	req64.virtual = addr;
+	addr = arg.virtual;
+
+	return 0;
+}
+
+typedef struct drm_buf_free32 {
+	int count;
+	uint32_t list;
+} drm_buf_free32_t;
+
+static int 
+compat_drm_freebufs(struct file *file, void *arg)
+{
+	drm_buf_free32_t req32;
+	struct drm_buf_free req64;
+	
+	if ((error = copyin(&req32, arg, sizeof(req32))) !=0)
+		return error;
+
+	req32.count = req64.count;
+	req32.list = req64.list;
+
+	return drm_ioctl(file, DRM_IOCTL_FREE_BUFS, &req64);
+}
+
+typedef struct drm_ctx_priv_map32 {
+	unsigned int ctx_id;	         /**< Context requesting private mapping */
+	netbsd32_pointer_t handle;	 /**< Handle of map */
+} drm_ctx_priv_map32_t;
+
+static int 
+compat_drm_setsareactx(struct file *file, void *arg)
+{
+	drm_ctx_priv_map32_t req32;
+	struct drm_ctx_pric_map req64;
+
+	if ((error = copyin(&req32, arg, sizeof(req32))) !=0)
+		return error;
+
+	req32.ctx_id = req64.ctx_id;
+	req32.handle = NETBSD32PTR64(req64.handle);
+
+	return drm_ioctl(file, DRM_IOCTL_SET_SAREA_CTX, &req64);
+}
+
+static int 
+compat_drm_getsareactx(struct file *file, void *arg)
+{
+	struct drm_ctx_priv_map req64;
+	int error;
+	unsigned int ctx_id;
+	void handle;
+
+	if ((error = access_ok(VERIFY_WRITE, arg, sizeof(arg))) != 0)
+		return error;
+	arg.ctx_id = ctx_id;
+
+	ctx_id = req64.ctx_id;
+
+	error = drm_ioctl(file, DRM_IOCTL_GET_SAREA_CTX, &req64);
+	if (error)
+		return error;
+
+	req64.handle = handle;
+	handle = arg.handle;
+
+	return 0;
+}
 int
 netbsd32_drm_ioctl(struct file *file, unsigned long cmd, void *arg,
     struct lwp *l)
