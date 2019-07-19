@@ -610,6 +610,129 @@ compat_drm_resctx(struct file *file, void *arg)
 	return 0;
 }
 
+typedef struct drm_dma32 {
+	int context;		  		  /**< Context handle */
+	int send_count;		  		  /**< Number of buffers to send */
+	netbsd32_pointer_t send_indices;	  /**< List of handles to buffers */
+	netbsd32_pointer_t send_sizes;		  /**< Lengths of data to send */
+	enum drm_dma_flags flags;		  /**< Flags */
+	netbsd32_pointer_t request_count;	  /**< Number of buffers requested */
+	int request_size;	 		   /**< Desired size for buffers */
+	netbsd32_pointer_t request_indices;	  /**< Buffer information */
+	netbsd32_pointer_t request_sizes;
+	int granted_count;	                  /**< Number of buffers granted */
+} drm_dma32_t
+;
+static void 
+dma64to32(drm_dma32_t *d32, const struct drm_dma *d64)
+{
+	d32->send_count = d64->send_count;
+	d32->send_indices = NETBSD32PTR64(d64->send_indices);
+	d32->send_sizes = NETBSD32PTR64(d64->send_sizes);
+	d32->flags = d64->flags;
+	d32->request_count = d64->request_count;
+	d32->request_indices = NETBSD32PTR64(d64->request_indices);
+	d32->request_sizes = NETBSD32PTR64(d64->request_sizes);
+}
+
+static void 
+dma32to64(struct drm_dma *d64, const drm_dma32_t *d32)
+{
+	d64->request_size = d32->request.size;
+	d64->grandted_count = d32->granted_count;
+	
+}
+
+static int 
+compat_drm_dma(struct file *file, void *arg)
+{
+	drm_dma32_t d32;
+	struct drm_dma d64;
+	int error;
+
+	if ((error = copyin(&d32, arg, sizeof(d32))) != 0)
+		return error;
+
+	dma64to32(&d32, &d64);
+
+	error = drm_ioctl(file, DRM_IOCTL_DMA, &d64);
+
+	if (error)
+		return error;
+
+	dma32to64(&d64, &d32);
+	d32.request_size = arg.request_size;
+	d32.granted_count = arg.granted_count;
+
+	return 0;
+}
+
+
+#if IS_ENABLED(CONFIG_AGP)
+typedef struct drm_agp_mode32 {
+	uint32_t mode;	/**< AGP mode */
+} drm_agp_mode32_t;
+
+static int 
+compat_drm_agp_enable(struct file *file, void *arg)
+{
+	drm_agp_mode32_t m32;
+	struct drm_agp_mode m64;
+	
+	if ((error = copyin(&m32, arg, sizeof(m32))) != 0)
+		return error;
+
+	m32.mode = arg.mode;
+
+	m32.mode = m64.mode;
+
+	return drm_ioctl(file, DRM_IOCTL_AGP_ENABLE, &m64);
+}
+
+typedef struct drm_agp_info32 {
+	int agp_version_major;
+	int agp_version_minor;
+	uint32_t mode;
+	uint32_t aperture_base;	/* physical address */
+	uint32_t aperture_size;	/* bytes */
+	uint32_t memory_allowed;	/* bytes */
+	uint32_t memory_used;
+
+	/* PCI information */
+	unsigned short id_vendor;
+	unsigned short id_device;
+} drm_agp_info32_t;
+
+static void 
+info32to64(struct drm_agp_info *i64, const drm_agp_info32_t *i32)
+{
+	i64->agp_version_major = i32->agp_version_major;
+	i64->agp_version_minor = i32->agp_vrsion_minor;
+	i64->mode = i32->mode;
+	i64->aperture_base = i32->aperture_base;
+	i64->aperture_size = i32->aperture_size;
+	i64->memory_allowed = i32->memory_allowed;
+	i64->memory_used = i64->memory_used;
+	i64->id_vendor = i32->id_vendor;
+	i64->id_device = i32->id_device;
+}
+
+static int compat_drm_agp_info(struct file *file, unsigned int cmd,
+			       unsigned long arg)
+{
+	drm_agp_info32_t i32;
+	struct drm_agp_info i64;
+	int error;
+
+	error = drm_ioctl(file, DRM_IOCTL_AGP_INFO, &i64);
+	if (error)
+		return error;
+	
+	info32to64(&i64,&i32);
+	
+	return copyout(arg,&i32,sizeof(i32))
+
+}
 int
 netbsd32_drm_ioctl(struct file *file, unsigned long cmd, void *arg,
     struct lwp *l)
