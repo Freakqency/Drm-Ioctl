@@ -398,7 +398,7 @@ compat_drm_markbufs(struct file *file, void *arg)
 
 typedef struct drm_buf_info32 {
 	int count;		/**< Entries in list */
-	uint32_t list;
+	netbsd32_pointer_t list;
 } drm_buf_info32_t;
 
 static int 
@@ -409,7 +409,7 @@ compat_drm_infobufs(struct file *file, void *arg)
 	drm_buf_desc32_t to;
 	struct drm_buf_info req64;
 	//struct drm_buf_desc __user *list;
-	struct drm_buf_desc list;
+	struct drm_buf_desc list64;
 	size_t nbytes;
 	int error;
 	int count, actual;
@@ -420,6 +420,7 @@ compat_drm_infobufs(struct file *file, void *arg)
 	count = req32.count;
 	// XXX: How to handle these type casts?
 	//to = (drm_buf_desc32_t __user *) (unsigned long)req32.list;
+	to = (char *)NETBSD32PTR64(req32.list);
 
 	if (count < 0)
 		count = 0;
@@ -434,7 +435,7 @@ compat_drm_infobufs(struct file *file, void *arg)
 	//list = (struct drm_buf_desc *) (req64 + 1);
 
 	count = req64.count;
-	list = req64.list;
+	list64 = NETBSD32PTR64(req64.list);
 
 	error = drm_ioctl(file, DRM_IOCTL_INFO_BUFS, &req64);
 
@@ -446,7 +447,7 @@ compat_drm_infobufs(struct file *file, void *arg)
 
 	if(count >= actual)
 		for(int i = 0; i < actual; ++i)
-			if((error = copyin(&to[i], &list[i], offset(struct drm_buf_desc, flags))) != 0)
+			if((error = copyin(&to[i], &list64[i], offset(struct drm_buf_desc, flags))) != 0)
 				return error;
 
 	acutal = arg.count;
@@ -464,7 +465,7 @@ typedef struct drm_buf_pub32 {
 typedef struct drm_buf_map32 {
 	int count;		/**< Length of the buffer list */
 	uint32_t virtual;	/**< Mmap'd area in user-virtual */
-	uint32_t list;		/**< Buffer information */
+	netbsd32_pointer_t list;		/**< Buffer information */
 } drm_buf_map32_t;
 
 static int 
@@ -475,7 +476,7 @@ compat_drm_mapbufs(struct file *file, void *arg)
 	drm_buf_pub32_t list32;
 	struct drm_buf_map req64;
 	//struct drm_buf_pub __user *list;
-	struct drm_buf_pub list;
+	struct drm_buf_pub list64;
 	int error;
 	int count, actual;
 	size_t nbytes;
@@ -487,14 +488,14 @@ compat_drm_mapbufs(struct file *file, void *arg)
 	
 	// XXX:Same type cast
 	//list32 = (void __user *)(unsigned long)req32.list;
-
+	list32 = NETBSD32PTR64(req32.list);
 	nbytes = sizeof(req64) + count * sizeof(struct drm_buf_pub);
 
 	// XXX:Same type cast
 	//list = (struct drm_buf_pub *) (req64 + 1);
 
 	count = req64.count;
-	list = req64.list;
+	list64 = NETBDS32PTR64(req64.list);
 
 	error = drm_ioctl(file, DRM_IOCTL_MAP_BUFS, &req64);
 
@@ -505,9 +506,9 @@ compat_drm_mapbufs(struct file *file, void *arg)
 
 	if (count >= actual)
 		for (int i=0; i < actual; ++i){
-			if ((error = copyin(&list32[i], &list[i], offsetof(struct drm_buf_pub, address))) !=0)
+			if ((error = copyin(&list32[i], &list64[i], offsetof(struct drm_buf_pub, address))) !=0)
 				return error;
-			list[i].address = addr;
+			list64[i].address = addr;
 			addr = list32[i].address;
 		}
 
@@ -520,7 +521,7 @@ compat_drm_mapbufs(struct file *file, void *arg)
 
 typedef struct drm_buf_free32 {
 	int count;
-	uint32_t list;
+	netbsd32_pointer_t list;
 } drm_buf_free32_t;
 
 static int 
@@ -533,7 +534,7 @@ compat_drm_freebufs(struct file *file, void *arg)
 		return error;
 
 	req32.count = req64.count;
-	req32.list = req64.list;
+	req32.list = (char *)NETBSD32PTR64(req64.list);
 
 	return drm_ioctl(file, DRM_IOCTL_FREE_BUFS, &req64);
 }
@@ -577,10 +578,38 @@ compat_drm_getsareactx(struct file *file, void *arg)
 		return error;
 
 	req64.handle = handle;
-	handle = arg.handle;
+	handle = NETBSD32PTR64(arg.handle);
 
 	return 0;
 }
+
+typedef struct drm_ctx_res32 {
+	int count;
+	netbsd32_pointer_t contexts;
+} drm_ctx_res32_t;
+
+static int 
+compat_drm_resctx(struct file *file, void *arg)
+{
+	drm_ctx_res32_t res32;
+	struct drm_ctx_res res64;
+	int error;
+
+	if ((error = copyin(&res32, arg, sizeof(res32))) != 0)
+		return error;
+
+	res32.count = res64.count;
+	res32.contexts = (char *)NETBSD32PTR64(res64.contexts);
+
+	error = drm_ioctl(file, DRM_IOCTL_RES_CTX, &res64);
+	if (error)
+		return error;
+	res64.count = res32.count;
+	res32.count = arg.count;
+
+	return 0;
+}
+
 int
 netbsd32_drm_ioctl(struct file *file, unsigned long cmd, void *arg,
     struct lwp *l)
