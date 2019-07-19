@@ -135,8 +135,8 @@ compat_drm_setunique(struct file *file, void *arg)
 	if ((error = copyin(&uq32, arg, sizeof(uq32))) != 0)
 		return error;
 
-	u64.unique_len = uq32.unique_len;
-	u64.unique = (char *)NETBSD32PTR64(uq32.unique);
+	uq64.unique_len = uq32.unique_len;
+	uq64.unique = (char *)NETBSD32PTR64(uq32.unique);
 
 	error = drm_ioctl(file, DRM_IOCTL_SET_UNIQUE, &uq64);
 	if (error)
@@ -233,8 +233,7 @@ compat_drm_rmmap(struct file *file, void *arg)
 {
 	drm_map32_t m32;
 	struct drm_map m64;
-	uint32_t handle;
-
+	int error;
 	if ((error = copyin(&m32, arg, sizeof(m32))) != 0)
 		return error;
 
@@ -258,6 +257,135 @@ typedef struct drm_client32 {
 	uint32_t iocs;	/**< Ioctl count */
 } drm_client32_t;
 
+static void
+client32to64(struct drm_client *c64, const drm_client32_t *c32)
+{
+	c64->idx = c32->idx;
+	c64->auth = c32->auth;
+	c64->pid = c32->pid;
+	c64->uid = c32->uid;
+	c64->iocs = c64->iocs;
+}
+
+static void 
+client64to32(drm_client32_t *c32, const drm_client *c64)
+{
+	c32->idx = c64->idx;
+	c32->auth = c64->auth;
+	c32->pid = c64->pid;
+	c32->uid = c64->uid;
+	c32->iocs = c64->iocs;
+}
+static int 
+compat_drm_getclient(struct file *file, void *arg)
+{
+	drm_client32_t c32;
+	struct drm_client c64;
+	int error;
+	
+	if ((error = copyin(&c32, arg, sizeof(c32))) != 0)
+		return error;
+
+	client32to64(&c64, &c32);
+
+	error = drm_ioctl(file, DRM_IOCTL_GET_CLIENT, &c64);
+
+	if (error)
+		return error;
+
+	client64to32(&c32, &c64);
+
+	return copyout(arg, &c32, sizeof(c32));
+}
+
+typedef struct drm_stats32 {
+	uint32_t count;
+	struct {
+		uint32_t value;
+		enum drm_stat_type type;
+	} data[15];
+} drm_stats32_t;
+
+static int 
+compat_drm_getstats(struct file *file, void *arg)
+{
+	drm_stats32_t s32;
+	struct drm_stats s64;
+	int error;
+
+	if ((error = copyin(&s32, arg, sizeof(s32))) !=0)
+		return error;
+
+	s64.count = s32.count;
+
+	error = drm_ioctl(file, DRM_IOCTL_GET_STATS, &s64);
+
+	if (error)
+		return error;
+
+	for (int i=0; i < 15; ++i) {
+		s64.data[i].value=s32.data[i].value;
+		s64.data[i].type=s32.data[i].type;
+	}
+
+	return copyout(arg, &s32, sizeof(s32));
+}
+
+typedef struct drm_buf_desc32 {
+	int count;		 /**< Number of buffers of this size */
+	int size;		 /**< Size in bytes */
+	int low_mark;		 /**< Low water mark */
+	int high_mark;		 /**< High water mark */
+	int flags;
+	uint32_t agp_start;		 /**< Start address in the AGP aperture */
+} drm_buf_desc32_t;
+
+static int 
+compat_drm_addbufs(struct file *file, void *arg)
+{
+	struct drm_buf_desc buf64;
+	int error;
+	unsigned long agp_start;
+
+	if (!buf || (error = !access_ok(VERIFY_WRITE, arg, sizeof(arg)) !=0))
+		return error;
+
+	if ((error = copyin(&buf64, arg, offsetof(drm_buf_desc32_t, agp_start))) !=0)
+		return error;
+
+	arg->agp_start=agp_start;
+	agp_start = buf64.agp_start;
+
+	error = drm_ioctl(file, DRM_IOCTL_ADD_BUFS, &buf64);
+
+	if (error)
+		return error;
+
+	if ((error = copyin(&arg, buf64, offsetof(drm_buf_desc32_t, agp_start))) !=0)
+		return error;
+
+	buf64.agp_start = agp-start;
+	agp_start = arg->agp_start;
+
+	return 0;
+}
+
+static int 
+compat_drm_markbufs(struct file *file, void *arg)
+{
+	drm_buf_desc32_t b32;
+	struct drm_buf_desc buf64;
+
+	if ((error = copyin(&b32, arg, sizeof(b32) )) !=0)
+		return error;
+
+	b32.size = b64.size;
+	b32.low_mark = b64.low_mark;
+	b32.high_mark = b64.high_mark; 
+
+	return drm_ioctl(file, DRM_IOCTL_MARK_BUFS, &buf64);
+}
+
 int
 netbsd32_drm_ioctl(struct file *file, unsigned long cmd, void *arg,
     struct lwp *l)
@@ -266,7 +394,9 @@ netbsd32_drm_ioctl(struct file *file, unsigned long cmd, void *arg,
 	case DRM_IOCTL_VERSION32:
 		return compat_drm_version(file, arg);
 	case DRM_IOCTL_GET_UNIQUE32:
-		return compat_drm_getunique(file,arg);	
+		return compat_drm_getunique(file,arg);
+	case DRM_IOCTL_SET_UNIQUE32:
+		return compat_drm_setunique(file,arg);
 	default:
 		return EINVAL;
 	}
