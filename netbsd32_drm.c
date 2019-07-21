@@ -112,7 +112,6 @@ compat_drm_getunique(struct file *file, void *arg)
 	uq64.unique = (char *)NETBSD32PTR64(uq32.unique);
 
         error = drm_ioctl(file, DRM_IOCTL_GET_UNIQUE, &uq64);
-
         if (error)
                 return error;
 
@@ -137,7 +136,7 @@ compat_drm_setunique(struct file *file, void *arg)
 
 	uq64.unique_len = uq32.unique_len;
 	uq64.unique = (char *)NETBSD32PTR64(uq32.unique);
-
+	
 	error = drm_ioctl(file, DRM_IOCTL_SET_UNIQUE, &uq64);
 	if (error)
 		return error;
@@ -291,7 +290,6 @@ compat_drm_getclient(struct file *file, void *arg)
 	client32to64(&c64, &c32);
 
 	error = drm_ioctl(file, DRM_IOCTL_GET_CLIENT, &c64);
-
 	if (error)
 		return error;
 
@@ -315,13 +313,12 @@ compat_drm_getstats(struct file *file, void *arg)
 	struct drm_stats s64;
 	int error;
 
-	if ((error = copyin(&s32, arg, sizeof(s32))) !=0)
+	if ((error = copyin(&s32, arg, sizeof(s32))) != 0)
 		return error;
 
 	s64.count = s32.count;
 
 	error = drm_ioctl(file, DRM_IOCTL_GET_STATS, &s64);
-
 	if (error)
 		return error;
 
@@ -351,14 +348,14 @@ compat_drm_addbufs(struct file *file, void *arg)
 	unsigned long agp_start;
 
 	// XXX: need copyin for arg?
-	if ((error = copyin(&buf64, arg, sizeof(buf64))) !=0)
+	if ((error = copyin(&buf64, arg, sizeof(buf64))) != 0)
 		return error;
 	// XXX: that will not compile? what is buf?
-	if (!buf64 || (error = !access_ok(VERIFY_WRITE, arg, sizeof(arg)) !=0))
+	if (!buf64 || (error = !access_ok(VERIFY_WRITE, arg, sizeof(arg)) != 0))
 		return error;
 
 	// XXX: agp_start is not initialized
-	if ((error = copyin(&buf64, arg, offsetof(drm_buf_desc32_t, agp_start))) !=0)
+	if ((error = copyin(&buf64, arg, offsetof(drm_buf_desc32_t, agp_start))) != 0)
 		return error;
 
 	// XXX: That does not compile
@@ -366,15 +363,14 @@ compat_drm_addbufs(struct file *file, void *arg)
 	agp_start = buf64.agp_start;
 
 	error = drm_ioctl(file, DRM_IOCTL_ADD_BUFS, &buf64);
-
 	if (error)
 		return error;
 
-	if ((error = copyin(&arg, buf64, offsetof(drm_buf_desc32_t, agp_start))) !=0)
+	if ((error = copyin(&arg, buf64, offsetof(drm_buf_desc32_t, agp_start))) != 0)
 		return error;
 
-	buf64.agp_start = agp-start;
-	agp_start = arg->agp_start;
+	buf64.agp_start = agp_start;
+	agp_start = arg.agp_start;
 
 	return 0;
 }
@@ -430,24 +426,22 @@ compat_drm_infobufs(struct file *file, void *arg)
 		return error;
 
 	nbytes = sizeof(req64) + count * sizeof(struct drm_buf_desc);
-
 	// XXX: How to handle these type casts?
 	//list = (struct drm_buf_desc *) (req64 + 1);
-
+	list64 = (struct drm_buf_desc *) (req64 + 1);
 	count = req64.count;
 	list64 = NETBSD32PTR64(req64.list);
 
 	error = drm_ioctl(file, DRM_IOCTL_INFO_BUFS, &req64);
-
 	if (error)
 		return error;
 
 
 	req64.count = actual;
 
-	if(count >= actual)
-		for(int i = 0; i < actual; ++i)
-			if((error = copyin(&to[i], &list64[i], offset(struct drm_buf_desc, flags))) != 0)
+	if (count >= actual)
+		for (int i = 0; i < actual; ++i)
+			if ((error = copyin(&to[i], &list64[i], offset(struct drm_buf_desc, flags))) != 0)
 				return error;
 
 	acutal = arg.count;
@@ -482,23 +476,21 @@ compat_drm_mapbufs(struct file *file, void *arg)
 	size_t nbytes;
 	void addr;
 
-	if ((error = copyin(&req32, arg, sizeof(req32))) !=0)
+	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
 		return error;
+
 	count = req32.count;
-	
 	// XXX:Same type cast
 	//list32 = (void __user *)(unsigned long)req32.list;
 	list32 = NETBSD32PTR64(req32.list);
 	nbytes = sizeof(req64) + count * sizeof(struct drm_buf_pub);
-
 	// XXX:Same type cast
 	//list = (struct drm_buf_pub *) (req64 + 1);
-
+	list64 = (struct drm_buf_pub *) (req64 + 1);
 	count = req64.count;
 	list64 = NETBDS32PTR64(req64.list);
 
 	error = drm_ioctl(file, DRM_IOCTL_MAP_BUFS, &req64);
-
 	if (error)
 		return error;
 
@@ -506,7 +498,7 @@ compat_drm_mapbufs(struct file *file, void *arg)
 
 	if (count >= actual)
 		for (int i=0; i < actual; ++i){
-			if ((error = copyin(&list32[i], &list64[i], offsetof(struct drm_buf_pub, address))) !=0)
+			if ((error = copyin(&list32[i], &list64[i], offsetof(struct drm_buf_pub, address))) != 0)
 				return error;
 			list64[i].address = addr;
 			addr = list32[i].address;
@@ -530,7 +522,7 @@ compat_drm_freebufs(struct file *file, void *arg)
 	drm_buf_free32_t req32;
 	struct drm_buf_free req64;
 	
-	if ((error = copyin(&req32, arg, sizeof(req32))) !=0)
+	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
 		return error;
 
 	req32.count = req64.count;
@@ -550,7 +542,7 @@ compat_drm_setsareactx(struct file *file, void *arg)
 	drm_ctx_priv_map32_t req32;
 	struct drm_ctx_pric_map req64;
 
-	if ((error = copyin(&req32, arg, sizeof(req32))) !=0)
+	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
 		return error;
 
 	req32.ctx_id = req64.ctx_id;
@@ -569,8 +561,8 @@ compat_drm_getsareactx(struct file *file, void *arg)
 
 	if ((error = access_ok(VERIFY_WRITE, arg, sizeof(arg))) != 0)
 		return error;
-	arg.ctx_id = ctx_id;
 
+	arg.ctx_id = ctx_id;
 	ctx_id = req64.ctx_id;
 
 	error = drm_ioctl(file, DRM_IOCTL_GET_SAREA_CTX, &req64);
@@ -604,6 +596,7 @@ compat_drm_resctx(struct file *file, void *arg)
 	error = drm_ioctl(file, DRM_IOCTL_RES_CTX, &res64);
 	if (error)
 		return error;
+
 	res64.count = res32.count;
 	res32.count = arg.count;
 
@@ -640,7 +633,6 @@ dma32to64(struct drm_dma *d64, const drm_dma32_t *d32)
 {
 	d64->request_size = d32->request.size;
 	d64->grandted_count = d32->granted_count;
-	
 }
 
 static int 
@@ -656,7 +648,6 @@ compat_drm_dma(struct file *file, void *arg)
 	dma64to32(&d32, &d64);
 
 	error = drm_ioctl(file, DRM_IOCTL_DMA, &d64);
-
 	if (error)
 		return error;
 
@@ -682,8 +673,7 @@ compat_drm_agp_enable(struct file *file, void *arg)
 	if ((error = copyin(&m32, arg, sizeof(m32))) != 0)
 		return error;
 
-	m32.mode = arg.mode;
-
+	arg.mode = m32.mode;
 	m32.mode = m64.mode;
 
 	return drm_ioctl(file, DRM_IOCTL_AGP_ENABLE, &m64);
@@ -693,8 +683,8 @@ typedef struct drm_agp_info32 {
 	int agp_version_major;
 	int agp_version_minor;
 	uint32_t mode;
-	uint32_t aperture_base;	/* physical address */
-	uint32_t aperture_size;	/* bytes */
+	uint32_t aperture_base;		/* physical address */
+	uint32_t aperture_size;		/* bytes */
 	uint32_t memory_allowed;	/* bytes */
 	uint32_t memory_used;
 
