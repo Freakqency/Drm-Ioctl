@@ -90,10 +90,174 @@ compat_drm_version(struct file *file, void *arg)
 	v32.date_len = v64.date_len;
 	v32.desc_len = v64.desc_len;
 
-	if ((error = copyout(arg, &v32, sizeof(v32))) != 0)
-		return error;
-	return 0;
+	return copyout(arg, &v32, sizeof(v32));
 }
+
+typedef struct drm_unique32 {
+        uint32_t unique_len; 
+        netbsd32_pointer_t unique;    
+} drm_unique32_t;
+
+static int
+compat_drm_getunique(struct file *file, void *arg)
+{
+        drm_unique32_t uq32;
+        struct drm_unique uq64;
+        int error;
+
+        if ((error = copyin(&uq32, arg, sizeof(uq32))) != 0)
+                return error;
+
+	uq64.unique_len = uq32.unique_len;
+	uq64.unique = (char *)NETBSD32PTR64(uq32.unique);
+
+        error = drm_ioctl(file, DRM_IOCTL_GET_UNIQUE, &uq64);
+
+        if (error)
+                return error;
+
+	//unique should already be copied
+	uq32.unique_len = uq64.unique_len;
+
+	if ((error = copyout(arg, &uq32, sizeof(uq32))) != 0)
+		return error;
+
+        return 0;
+}
+
+static int
+compat_drm_setunique(struct file *file, void *arg)
+{
+        drm_unique32_t uq32;
+        struct drm_unique uq64;
+	int error;
+
+	if ((error = copyin(&uq32, arg, sizeof(uq32))) != 0)
+		return error;
+
+	u64.unique_len = uq32.unique_len;
+	u64.unique = (char *)NETBSD32PTR64(uq32.unique);
+
+	error = drm_ioctl(file, DRM_IOCTL_SET_UNIQUE, &uq64);
+	if (error)
+		return error;
+
+	// XXX: do we need copyout and copying the fields here?
+
+        return error;
+}
+
+typedef struct drm_map32 {
+        uint32_t offset;             /**< Requested physical address (0 for SAREA)*/
+        uint32_t size;               /**< Requested physical size (bytes) */
+        enum drm_map_type type;      /**< Type of memory to map */
+        enum drm_map_flags flags;    /**< Flags */
+        netbsd32_pointer_t handle;   /**< User-space: "Handle" to pass to mmap() */
+        int mtrr;                    /**< MTRR slot used */
+} drm_map32_t;
+
+
+static void
+map32to64(struct drm_map *m64, const drm_map32_t *m32)
+{
+	m64->offset = m32->offset;
+	m64->size = m32->size;
+	m64->type = m32->type;
+	m64->flags = m32->flags;
+	m64->handle = NETBSD32PTR64(m64->handle);
+	m64->mtrr = m32->mtrr;
+}
+
+static void
+map64to32(drm_map32_t *m32, const struct drm_map *m64)
+{
+	m32->offset = m64->offset;
+	m32->size = m64->size;
+	m32->type = m64->type;
+	m32->flags = m64->flags;
+	m32->handle = NETBSD32PTR32(m32->handle);
+	m32->mtrr = m64->mtrr;
+}
+
+static int
+compat_drm_getmap(struct file *file, void *arg)
+{
+        drm_map32_t m32;
+        struct drm_map m64;
+        int error;
+
+	if ((error = copyin(&m32, arg, sizeof(m32))) != 0)
+		return error;
+
+	map32to64(&m64, &m32);
+
+        error = drm_ioctl(file, DRM_IOCTL_GET_MAP, &m64);
+        if (error)
+                return error;
+
+	map64to32(&m32, &m64);
+
+	return copyout(arg, &m32, sizeof(m32));
+}
+
+static int
+compat_drm_addmap(struct file *file, void *arg)
+{
+	drm_map32_t m32;
+	struct drm_map m64;
+	int error;
+
+	if ((error = copyin(&m32, arg, sizeof(m32))) != 0)
+		return error;
+
+	map32to64(&m64, &m32);
+
+	error = drm_ioctl(file, DRM_IOCTL_ADD_MAP, &m64);
+	if (error)
+		return error;
+	
+	map64to32(&m32, &m64);
+
+#ifdef notyet
+	if (m32.handle != (unsigned long)handle)
+		printk_ratelimited(KERN_ERR "compat_drm_addmap truncated handle"
+				   " %p for type %d offset %x\n",
+				   handle, m32.type, m32.offset);
+#endif
+
+	return copyout(arg, &m32, sizeof(m32));
+}
+
+
+static int
+compat_drm_rmmap(struct file *file, void *arg)
+{
+	drm_map32_t m32;
+	struct drm_map m64;
+	uint32_t handle;
+
+	if ((error = copyin(&m32, arg, sizeof(m32))) != 0)
+		return error;
+
+	map32to64(&m64, &m32);
+
+	error = drm_ioctl(file, DRM_IOCTL_RM_MAP, &m64);
+	if (error)
+		return error;
+	
+	map64to32(&m32, &m64);
+
+	return copyout(arg, &m32, sizeof(m32));
+}
+
+typedef struct drm_client32 {
+	int idx;	/**< Which client desired? */
+	int auth;	/**< Is client authenticated? */
+	uint32_t pid;	/**< Process ID */
+	uint32_t uid;	/**< User ID */
+	uint32_t magic;	/**< Magic */
+	uint32_t iocs;	/**< Ioctl count */
+} drm_client32_t;
 
 int
 netbsd32_drm_ioctl(struct file *file, unsigned long cmd, void *arg,
@@ -109,147 +273,3 @@ netbsd32_drm_ioctl(struct file *file, unsigned long cmd, void *arg,
 	}
 }
 
-typedef struct drm_unique32 
-{
-        uint32_t unique_len; 
-        netbsd32_pointer_t unique;    
-} drm_unique32_t;
-
-static int compat_drm_getunique(struct file *file,void *arg)
-{
-        drm_unique32_t uq32;
-        struct drm_unique uq64;
-        int error;
-
-        if ((error = copyin(&uq32,arg,sizeof(uq32))) !=0 )
-                return error;
-
-	uq64.unique_len = uq32.unique_len;
-	uq64.unique = (char *)NETBSD32PTR64(uq32.unique);
-
-
-        error = drm_ioctl(file, DRM_IOCTL_GET_UNIQUE, &uq64);
-
-        if (error)
-                return error;
-//unique should already be copied
-	uq32.unique_len=uq64.unique_len;
-
-	if((error = copyout(arg,&uq32,sizeof(uq32))) != 0)
-		return error;
-
-        return 0;
-}
-
-static int compat_drm_setunique(struct file *file,void *arg)
-{
-        drm_unique32_t uq32;
-        struct drm_unique uq64;
-	int error;
-
-	if((error = copyin(&uq32,arg,sizeof(uq32))) != 0 )
-		return error;
-
-	if(error)
-		return error;
-        
-	u64.unique_len = uq32.unique_len;
-	u64.unique = (char *)NETBSD32PTR64(uq32.unique);
-        return drm_ioctl(file, DRM_IOCTL_SET_UNIQUE, &uq64);
-}
-
-typedef struct drm_map32 {
-        uint32_t offset;             /**< Requested physical address (0 for SAREA)*/
-        uint32_t size;               /**< Requested physical size (bytes) */
-        enum drm_map_type type;      /**< Type of memory to map */
-        enum drm_map_flags flags;    /**< Flags */
-        netbsd32_pointer_t handle;             /**< User-space: "Handle" to pass to mmap() */
-        int mtrr;                    /**< MTRR slot used */
-} drm_map32_t;
-
-static int compat_drm_getmap(struct file *file, void *arg)
-{
-        drm_map32_t m32;
-        struct drm_map m64;
-        int idx, error;
-        void *handle;
-
-	idx = arg.offset;
-	
-	m64.offset=idex;
-
-        error = drm_ioctl(file, DRM_IOCTL_GET_MAP, &m64);
-
-        if (error)
-                return error;
-	
-	m32.offset = m64.offset;
-	m32.size = m64.size;
-	m32.type = m64.type;
-	m32.flags = m64.flags;
-	handle = m64.handle;
-	m32.mtrr=m64.mtrr;
-
-        m32.handle = (unsigned long)handle;
-	
-	if((error=copyout(arg,&m32,sizeof(m32))) !=0)
-		return error;
-        return 0;
-}
-
-static int compat_drm_addmap(struct file *file, void *arg)
-{
-	drm_map32_t m32;
-	struct drm_map m64;
-	int error;
-	void *handle;
-
-	if((error = copyin(&m32,arg,sizeof(m32))) != 0)
-		return error;
-
-	m64.offset=m32.offset;
-	m64.size=m32.size;
-	m64.type= m32.type;
-	m64.flags = m32.flags;
-
-
-	error = drm_ioctl(file, DRM_IOCTL_ADD_MAP, &m64);
-	if (error)
-		return error;
-	
-	v32.offset = m64.offset;
-	m32.mtrr = m64.mtrr;
-	handle=m64.handle;
-
-	m32.handle = (unsigned long)handle;
-	if (m32.handle != (unsigned long)handle)
-		printk_ratelimited(KERN_ERR "compat_drm_addmap truncated handle"
-				   " %p for type %d offset %x\n",
-				   handle, m32.type, m32.offset);
-
-	if((error = copyout(arg,&m32,sizeof(m32))) != 0)
-		return error;
-	return 0;
-}
-
-
-static int compat_drm_rmmap(struct file *file, void *arg)
-{
-	struct drm_map m64;
-	uint32_t handle;
-
-	handle=arg->handle;
-
-	m64.handle=(void * )(unsigned long )handle;
-
-	return drm_ioctl(file, DRM_IOCTL_RM_MAP, &m64);
-}
-
-typedef struct drm_client32 {
-	int idx;	/**< Which client desired? */
-	int auth;	/**< Is client authenticated? */
-	uint32_t pid;	/**< Process ID */
-	uint32_t uid;	/**< User ID */
-	uint32_t magic;	/**< Magic */
-	uint32_t iocs;	/**< Ioctl count */
-} drm_client32_t;
