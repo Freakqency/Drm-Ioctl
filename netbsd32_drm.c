@@ -337,7 +337,7 @@ typedef struct drm_buf_desc32 {
 	int low_mark;		 /**< Low water mark */
 	int high_mark;		 /**< High water mark */
 	int flags;
-	uint32_t agp_start;		 /**< Start address in the AGP aperture */
+	uint32_t agp_start;	/**< Start address in the AGP aperture */
 } drm_buf_desc32_t;
 
 static int 
