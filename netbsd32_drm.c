@@ -323,9 +323,10 @@ compat_drm_getstats(struct file *file, void *arg)
 	if (error)
 		return error;
 
-	for (int i=0; i < 15; ++i) {
-		s64.data[i].value=s32.data[i].value;
-		s64.data[i].type=s32.data[i].type;
+	// XXX: or does that need to be count?
+	for (int i = 0; i < __arraycount(s64.data); ++i) {
+		s64.data[i].value = s32.data[i].value;
+		s64.data[i].type = s32.data[i].type;
 	}
 
 	return copyout(arg, &s32, sizeof(s32));
@@ -347,13 +348,18 @@ compat_drm_addbufs(struct file *file, void *arg)
 	int error;
 	unsigned long agp_start;
 
+	// XXX: need copyin for arg?
+
+	// XXX: that will not compile? what is buf?
 	if (!buf || (error = !access_ok(VERIFY_WRITE, arg, sizeof(arg)) !=0))
 		return error;
 
+	// XXX: agp_start is not initialized
 	if ((error = copyin(&buf64, arg, offsetof(drm_buf_desc32_t, agp_start))) !=0)
 		return error;
 
-	arg->agp_start=agp_start;
+	// XXX: That does not compile
+	arg->agp_start = agp_start;
 	agp_start = buf64.agp_start;
 
 	error = drm_ioctl(file, DRM_IOCTL_ADD_BUFS, &buf64);
@@ -376,9 +382,10 @@ compat_drm_markbufs(struct file *file, void *arg)
 	drm_buf_desc32_t b32;
 	struct drm_buf_desc buf64;
 
-	if ((error = copyin(&b32, arg, sizeof(b32) )) !=0)
+	if ((error = copyin(&b32, arg, sizeof(b32))) != 0)
 		return error;
 
+	// XXX: this is backwards? b64. = b32.
 	b32.size = b64.size;
 	b32.low_mark = b64.low_mark;
 	b32.high_mark = b64.high_mark; 
