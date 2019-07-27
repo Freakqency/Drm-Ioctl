@@ -72,11 +72,11 @@ compat_drm_version(struct file *file, void *arg)
 		return error;
 
 	v64.name_len = v32.name_len;
-	v64.name = (char *)NETBSD32PTR64(v32.name);
+	v64.name = NETBSD32PTR64(v32.name);
 	v64.date_len = v32.date_len;
-	v64.date = (char *)NETBSD32PTR64(v32.date);
+	v64.date = NETBSD32PTR64(v32.date);
 	v64.desc_len = v32.desc_len;
-	v64.desc =(char *)NETBSD32PTR64(v32.desc);
+	v64.desc = NETBSD32PTR64(v32.desc);
 
 	error = drm_ioctl(file, DRM_IOCTL_VERSION, &v64);
 	if (error)
@@ -143,7 +143,7 @@ compat_drm_setunique(struct file *file, void *arg)
 
 	// XXX: do we need copyout and copying the fields here?
 	uq32.unique_len = uq64.unique_len;
-	uq32.unique = (char *)NETBSD32PTR64(uq64.unique);
+	uq32.unique = NETBSD32PTR64(uq64.unique);
 
         return error;
 }
@@ -337,36 +337,34 @@ typedef struct drm_buf_desc32 {
 	int low_mark;		 /**< Low water mark */
 	int high_mark;		 /**< High water mark */
 	int flags;
-	uint32_t agp_start;	 /**< Start address in the AGP aperture */
+	netbsd_pointer_t agp_start;
+				/**< Start address in the AGP aperture */
 } drm_buf_desc32_t;
 
 static int 
 compat_drm_addbufs(struct file *file, void *arg)
 {
+	drm_buf_desc32_t buf32;
 	struct drm_buf_desc buf64;
 	int error;
-	unsigned long agp_start;
 
-	// XXX: need copyin for arg?
-	if ((error = copyin(&buf64, arg, sizeof(buf64))) != 0)
+	if ((error = copyin(&buf32, arg, sizeof(buf32))) != 0)
 		return error;
+#ifdef notyet
 	// XXX: that will not compile? what is buf?
 	if (!buf64 || (error = !access_ok(VERIFY_WRITE, arg, sizeof(arg)) != 0))
 		return error;
+#endif
 
-	// XXX: agp_start is not initialized
-	if ((error = copyin(&buf64, arg, offsetof(drm_buf_desc32_t, agp_start))) != 0)
-		return error;
-
-	// XXX: That does not compile
-	arg.agp_start = agp_start;
-	agp_start = buf64.agp_start;
+	// XXX: assign 32->64
 
 	error = drm_ioctl(file, DRM_IOCTL_ADD_BUFS, &buf64);
 	if (error)
 		return error;
 
-	if ((error = copyin(&arg, buf64, offsetof(drm_buf_desc32_t, agp_start))) != 0)
+	// XXX assign 64->32
+
+	if ((error = copyout(&buf32, arg, sizeofs(buf32))) != 0)
 		return error;
 
 	buf64.agp_start = agp_start;
@@ -384,10 +382,10 @@ compat_drm_markbufs(struct file *file, void *arg)
 	if ((error = copyin(&b32, arg, sizeof(b32))) != 0)
 		return error;
 
-	// XXX: this is backwards? b64. = b32.
 	b64.size = b32.size;
 	b64.low_mark = b32.low_mark;
 	b64.high_mark = b32.high_mark; 
+	//XXX: more stuff?
 
 	return drm_ioctl(file, DRM_IOCTL_MARK_BUFS, &buf64);
 }
@@ -401,10 +399,8 @@ static int
 compat_drm_infobufs(struct file *file, void *arg)
 {
 	drm_buf_info32_t req32;
-	//drm_buf_desc32_t __user *to;
-	drm_buf_desc32_t to;
+	drm_buf_desc32_t *to;
 	struct drm_buf_info req64;
-	//struct drm_buf_desc __user *list;
 	struct drm_buf_desc list64;
 	size_t nbytes;
 	int error;
@@ -414,18 +410,18 @@ compat_drm_infobufs(struct file *file, void *arg)
 		return error;
 
 	count = req32.count;
-	// XXX: How to handle these type casts?
-	//to = (drm_buf_desc32_t __user *) (unsigned long)req32.list;
-	to = (char *)NETBSD32PTR64(req32.list);
+	to = NETBSD32PTR32(req32.list);
 
 	if (count < 0)
 		count = 0;
 
+#ifdef notyet
 	if (count > 0
 	    && ( error = !access_ok(VERIFY_WRITE, to, count * sizeof(drm_buf_desc32_t))) != 0)
 		return error;
+#endif
 
-	nbytes = sizeof(req64) + count * sizeof(struct drm_buf_desc);
+	nbytes = sizeof(req64) + count * sizeof(list64);
 	// XXX: How to handle these type casts?
 	//list = (struct drm_buf_desc *) (req64 + 1);
 	list64 = (struct drm_buf_desc *) (req64 + 1);
