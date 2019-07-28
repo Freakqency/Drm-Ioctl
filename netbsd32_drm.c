@@ -175,7 +175,7 @@ map64to32(drm_map32_t *m32, const struct drm_map *m64)
 	m32->size = m64->size;
 	m32->type = m64->type;
 	m32->flags = m64->flags;
-	m32->handle = NETBSD32PTR32(m32->handle);
+	m32->handle = NETBSD32PTR32(m32->handle,m64->handle);
 	m32->mtrr = m64->mtrr;
 }
 
@@ -269,7 +269,7 @@ client32to64(struct drm_client *c64, const drm_client32_t *c32)
 }
 
 static void 
-client64to32(drm_client32_t *c32, const drm_client *c64)
+client64to32(drm_client32_t *c32, const struct drm_client *c64)
 {
 	c32->idx = c64->idx;
 	c32->auth = c64->auth;
@@ -309,26 +309,26 @@ typedef struct drm_stats32 {
 static int 
 compat_drm_getstats(struct file *file, void *arg)
 {
-	drm_stats32_t s32;
-	struct drm_stats s64;
+	drm_stats32_t st32;
+	struct drm_stats st64;
 	int error;
 
-	if ((error = copyin(&s32, arg, sizeof(s32))) != 0)
+	if ((error = copyin(&st32, arg, sizeof(st32))) != 0)
 		return error;
 
-	s64.count = s32.count;
+	st64.count = st32.count;
 
-	error = drm_ioctl(file, DRM_IOCTL_GET_STATS, &s64);
+	error = drm_ioctl(file, DRM_IOCTL_GET_STATS, &st64);
 	if (error)
 		return error;
 
 	// XXX: or does that need to be count?
-	for (int i = 0; i < __arraycount(s64.data); ++i) {
-		s64.data[i].value = s32.data[i].value;
-		s64.data[i].type = s32.data[i].type;
+	for (int i = 0; i < __arraycount(st64.data); ++i) {
+		st64.data[i].value = st32.data[i].value;
+		st64.data[i].type = st32.data[i].type;
 	}
 
-	return copyout(arg, &s32, sizeof(s32));
+	return copyout(arg, &st32, sizeof(s32));
 }
 
 typedef struct drm_buf_desc32 {
@@ -337,7 +337,7 @@ typedef struct drm_buf_desc32 {
 	int low_mark;		 /**< Low water mark */
 	int high_mark;		 /**< High water mark */
 	int flags;
-	netbsd_pointer_t agp_start;
+	netbsd32_pointer_t agp_start;
 				/**< Start address in the AGP aperture */
 } drm_buf_desc32_t;
 
@@ -347,6 +347,7 @@ compat_drm_addbufs(struct file *file, void *arg)
 	drm_buf_desc32_t buf32;
 	struct drm_buf_desc buf64;
 	int error;
+	netbsd32_pointer_t agp_start;
 
 	if ((error = copyin(&buf32, arg, sizeof(buf32))) != 0)
 		return error;
@@ -357,27 +358,26 @@ compat_drm_addbufs(struct file *file, void *arg)
 #endif
 
 	// XXX: assign 32->64
+	agp_start = NETBSD32PTR32(buf32.agp_start);
+	buf64.agp_start = NETBSD32PTR32(agp_start);
 
 	error = drm_ioctl(file, DRM_IOCTL_ADD_BUFS, &buf64);
 	if (error)
 		return error;
 
 	// XXX assign 64->32
+	agp_start = NETBSD3264(buf64.agp_start);
+	buf32.agp_start = agp_start;
 
-	if ((error = copyout(&buf32, arg, sizeofs(buf32))) != 0)
-		return error;
-
-	buf64.agp_start = agp_start;
-	agp_start = arg.agp_start;
-
-	return 0;
+	return copyout(&buf32, arg, sizeof(buf32));
 }
 
 static int 
 compat_drm_markbufs(struct file *file, void *arg)
 {
 	drm_buf_desc32_t b32;
-	struct drm_buf_desc buf64;
+	struct drm_buf_desc b64;
+	int error;
 
 	if ((error = copyin(&b32, arg, sizeof(b32))) != 0)
 		return error;
@@ -387,7 +387,7 @@ compat_drm_markbufs(struct file *file, void *arg)
 	b64.high_mark = b32.high_mark; 
 	//XXX: more stuff?
 
-	return drm_ioctl(file, DRM_IOCTL_MARK_BUFS, &buf64);
+	return drm_ioctl(file, DRM_IOCTL_MARK_BUFS, &b64);
 }
 
 typedef struct drm_buf_info32 {
@@ -395,117 +395,20 @@ typedef struct drm_buf_info32 {
 	netbsd32_pointer_t list;
 } drm_buf_info32_t;
 
-static int 
-compat_drm_infobufs(struct file *file, void *arg)
-{
-	drm_buf_info32_t req32;
-	drm_buf_desc32_t *to;
-	struct drm_buf_info req64;
-	struct drm_buf_desc list64;
-	size_t nbytes;
-	int error;
-	int count, actual;
-
-	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
-		return error;
-
-	count = req32.count;
-	to = NETBSD32PTR32(req32.list);
-
-	if (count < 0)
-		count = 0;
-
-#ifdef notyet
-	if (count > 0
-	    && ( error = !access_ok(VERIFY_WRITE, to, count * sizeof(drm_buf_desc32_t))) != 0)
-		return error;
-#endif
-
-	nbytes = sizeof(req64) + count * sizeof(list64);
-	// XXX: How to handle these type casts?
-	//list = (struct drm_buf_desc *) (req64 + 1);
-	list64 = (struct drm_buf_desc *) (req64 + 1);
-	count = req64.count;
-	list64 = NETBSD32PTR64(req64.list);
-
-	error = drm_ioctl(file, DRM_IOCTL_INFO_BUFS, &req64);
-	if (error)
-		return error;
-
-
-	req64.count = actual;
-
-	if (count >= actual)
-		for (int i = 0; i < actual; ++i)
-			if ((error = copyin(&to[i], &list64[i], offset(struct drm_buf_desc, flags))) != 0)
-				return error;
-
-	acutal = arg.count;
-
-	return 0;
-}
 
 typedef struct drm_buf_pub32 {
-	int idx;		/**< Index into the master buffer list */
-	int total;		/**< Buffer size */
-	int used;		/**< Amount of buffer in use (for DMA) */
-	uint32_t address;	/**< Address of buffer */
+	int idx;		 /**< Index into the master buffer list */
+	int total;		 /**< Buffer size */
+	int used;		 /**< Amount of buffer in use (for DMA) */
+	uint32_t address;	 /**< Address of buffer */
 } drm_buf_pub32_t;
 
 typedef struct drm_buf_map32 {
-	int count;		/**< Length of the buffer list */
-	uint32_t virtual;	/**< Mmap'd area in user-virtual */
-	netbsd32_pointer_t list;		/**< Buffer information */
+	int count;		 /**< Length of the buffer list */
+	uint32_t virtual;	 /**< Mmap'd area in user-virtual */
+	netbsd32_pointer_t list; /**< Buffer information */
 } drm_buf_map32_t;
 
-static int 
-compat_drm_mapbufs(struct file *file, void *arg)
-{
-	drm_buf_map32_t req32;
-	//drm_buf_pub32_t __user *list32;
-	drm_buf_pub32_t list32;
-	struct drm_buf_map req64;
-	//struct drm_buf_pub __user *list;
-	struct drm_buf_pub list64;
-	int error;
-	int count, actual;
-	size_t nbytes;
-	void addr;
-
-	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
-		return error;
-
-	count = req32.count;
-	// XXX:Same type cast
-	//list32 = (void __user *)(unsigned long)req32.list;
-	list32 = NETBSD32PTR64(req32.list);
-	nbytes = sizeof(req64) + count * sizeof(struct drm_buf_pub);
-	// XXX:Same type cast
-	//list = (struct drm_buf_pub *) (req64 + 1);
-	list64 = (struct drm_buf_pub *) (req64 + 1);
-	count = req64.count;
-	list64 = NETBDS32PTR64(req64.list);
-
-	error = drm_ioctl(file, DRM_IOCTL_MAP_BUFS, &req64);
-	if (error)
-		return error;
-
-	req64.count = actual;
-
-	if (count >= actual)
-		for (int i=0; i < actual; ++i){
-			if ((error = copyin(&list32[i], &list64[i], offsetof(struct drm_buf_pub, address))) != 0)
-				return error;
-			list64[i].address = addr;
-			addr = list32[i].address;
-		}
-
-	actual = arg.count;
-	req64.virtual = addr;
-	addr = arg.virtual;
-
-	return 0;
-}
 
 typedef struct drm_buf_free32 {
 	int count;
@@ -517,12 +420,13 @@ compat_drm_freebufs(struct file *file, void *arg)
 {
 	drm_buf_free32_t req32;
 	struct drm_buf_free req64;
-	
+	int error;
+
 	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
 		return error;
 
 	req32.count = req64.count;
-	req32.list = (char *)NETBSD32PTR64(req64.list);
+	req32.list = NETBSD32PTR64(req64.list);
 
 	return drm_ioctl(file, DRM_IOCTL_FREE_BUFS, &req64);
 }
@@ -537,6 +441,7 @@ compat_drm_setsareactx(struct file *file, void *arg)
 {
 	drm_ctx_priv_map32_t req32;
 	struct drm_ctx_pric_map req64;
+	int error;
 
 	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
 		return error;
@@ -551,22 +456,26 @@ static int
 compat_drm_getsareactx(struct file *file, void *arg)
 {
 	struct drm_ctx_priv_map req64;
+	drm_ctx_priv_map32_t req32;
 	int error;
 	unsigned int ctx_id;
-	void handle;
+	netbsd32_pointer_t handle;
+
+	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
+		return error;
 
 	if ((error = access_ok(VERIFY_WRITE, arg, sizeof(arg))) != 0)
 		return error;
 
-	arg.ctx_id = ctx_id;
-	ctx_id = req64.ctx_id;
+	req32.ctx_id = ctx_id;
+	req64.ctx_id = ctx_id;
 
 	error = drm_ioctl(file, DRM_IOCTL_GET_SAREA_CTX, &req64);
 	if (error)
 		return error;
 
-	req64.handle = handle;
-	handle = NETBSD32PTR64(arg.handle);
+	handle = NETBSD32PTR64(req64.handle);
+	req32.handle = NETBSD32PTR64(handle);
 
 	return 0;
 }
@@ -587,14 +496,13 @@ compat_drm_resctx(struct file *file, void *arg)
 		return error;
 
 	res32.count = res64.count;
-	res32.contexts = (char *)NETBSD32PTR64(res64.contexts);
+	res32.contexts = NETBSD32PTR64(res64.contexts);
 
 	error = drm_ioctl(file, DRM_IOCTL_RES_CTX, &res64);
 	if (error)
 		return error;
 
 	res64.count = res32.count;
-	res32.count = arg.count;
 
 	return 0;
 }
@@ -616,10 +524,10 @@ static void
 dma64to32(drm_dma32_t *d32, const struct drm_dma *d64)
 {
 	d32->send_count = d64->send_count;
-	d32->send_indices = NETBSD32PTR64(d64->send_indices);
+	d32->send_indices = NETBSD32PTR32(d64->send_indices);
 	d32->send_sizes = NETBSD32PTR64(d64->send_sizes);
 	d32->flags = d64->flags;
-	d32->request_count = d64->request_count;
+	d32->request_count = NETBSD32PTR64(d64->request_count);
 	d32->request_indices = NETBSD32PTR64(d64->request_indices);
 	d32->request_sizes = NETBSD32PTR64(d64->request_sizes);
 }
@@ -627,8 +535,8 @@ dma64to32(drm_dma32_t *d32, const struct drm_dma *d64)
 static void 
 dma32to64(struct drm_dma *d64, const drm_dma32_t *d32)
 {
-	d64->request_size = d32->request.size;
-	d64->grandted_count = d32->granted_count;
+	d64->request_size = d32->request_size;
+	d64->granted_count = d32->granted_count;
 }
 
 static int 
@@ -648,14 +556,12 @@ compat_drm_dma(struct file *file, void *arg)
 		return error;
 
 	dma32to64(&d64, &d32);
-	d32.request_size = arg.request_size;
-	d32.granted_count = arg.granted_count;
 
 	return 0;
 }
 
-
-#if IS_ENABLED(CONFIG_AGP)
+//XXX:i commented the below line for later use
+//#if IS_ENABLED(CONFIG_AGP)
 typedef struct drm_agp_mode32 {
 	uint32_t mode;	/**< AGP mode */
 } drm_agp_mode32_t;
@@ -665,11 +571,11 @@ compat_drm_agp_enable(struct file *file, void *arg)
 {
 	drm_agp_mode32_t m32;
 	struct drm_agp_mode m64;
+	int error;
 	
 	if ((error = copyin(&m32, arg, sizeof(m32))) != 0)
 		return error;
 
-	arg.mode = m32.mode;
 	m32.mode = m64.mode;
 
 	return drm_ioctl(file, DRM_IOCTL_AGP_ENABLE, &m64);
@@ -693,7 +599,7 @@ static void
 info32to64(struct drm_agp_info *i64, const drm_agp_info32_t *i32)
 {
 	i64->agp_version_major = i32->agp_version_major;
-	i64->agp_version_minor = i32->agp_vrsion_minor;
+	i64->agp_version_minor = i32->agp_version_minor;
 	i64->mode = i32->mode;
 	i64->aperture_base = i32->aperture_base;
 	i64->aperture_size = i32->aperture_size;
@@ -703,8 +609,8 @@ info32to64(struct drm_agp_info *i64, const drm_agp_info32_t *i32)
 	i64->id_device = i32->id_device;
 }
 
-static int compat_drm_agp_info(struct file *file, unsigned int cmd,
-			       unsigned long arg)
+static int 
+compat_drm_agp_info(struct file *file, void *arg)
 {
 	drm_agp_info32_t i32;
 	struct drm_agp_info i64;
@@ -716,7 +622,7 @@ static int compat_drm_agp_info(struct file *file, unsigned int cmd,
 	
 	info32to64(&i64,&i32);
 	
-	return copyout(arg,&i32,sizeof(i32))
+	return copyout(arg, &i32, sizeof(i32));
 
 }
 int
