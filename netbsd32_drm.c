@@ -367,7 +367,7 @@ compat_drm_addbufs(struct file *file, void *arg)
 
 	// XXX assign 64->32
 	NETBSD32PTR32(agp_start, (void *)(long)buf64.agp_start);
-	buf32.agp_start = agp_start;
+	NETBSD32PTR32(buf32.agp_start, (void *)buf64.agp_start);
 
 	return copyout(&buf32, arg, sizeof(buf32));
 }
@@ -425,8 +425,8 @@ compat_drm_freebufs(struct file *file, void *arg)
 	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
 		return error;
 
-	req32.count = req64.count;
-	NETBSD32PTR32(req32.list, req64.list);
+	req64.count = req32.count;
+	req64.list = NETBSD32PTR64(req32.list);
 
 	return drm_ioctl(file, DRM_IOCTL_FREE_BUFS, &req64);
 }
@@ -446,12 +446,15 @@ compat_drm_setsareactx(struct file *file, void *arg)
 	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
 		return error;
 
-	req32.ctx_id = req64.ctx_id;
-	NETBSD32PTR32(req32.handle, req64.handle);
+	req64.ctx_id = req32.ctx_id;
+	req64.handle = NETBSD32PTR64(req32.handle);
 
 	error = drm_ioctl(file, DRM_IOCTL_SET_SAREA_CTX, &req64);
 	if(error)
 		return error;
+	
+	req32.ctx_id = req64.ctx_id;
+	NETBSD32PTR32(req32.handle, req64.handle);
 
 	return 0;	
 }
@@ -462,24 +465,18 @@ compat_drm_getsareactx(struct file *file, void *arg)
 	struct drm_ctx_priv_map req64;
 	drm_ctx_priv_map32_t req32;
 	int error;
-	unsigned int ctx_id;
-	netbsd32_pointer_t handle;
 
 	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
 		return error;
 
-	if ((error = access_ok(VERIFY_WRITE, arg, sizeof(arg))) != 0)
-		return error;
-
-	req32.ctx_id = ctx_id;
-	req64.ctx_id = ctx_id;
+	req64.ctx_id = req32.ctx_id;
 
 	error = drm_ioctl(file, DRM_IOCTL_GET_SAREA_CTX, &req64);
 	if (error)
 		return error;
 
-	NETBSD32PTR32(handle, req64.handle);
-	req32.handle = handle;
+	NETBSD32PTR32(req32.handle, req64.handle);
+	// XXX: missing copyout?
 
 	return copyout(arg, &req32, sizeof(req32));
 }
@@ -499,14 +496,16 @@ compat_drm_resctx(struct file *file, void *arg)
 	if ((error = copyin(&res32, arg, sizeof(res32))) != 0)
 		return error;
 
-	res32.count = res64.count;
-	NETBSD32PTR32(res32.contexts, res64.contexts);
+	res64.count = res32.count;
+	res64.contexts = NETBSD32PTR64(res32.contexts);
 
 	error = drm_ioctl(file, DRM_IOCTL_RES_CTX, &res64);
 	if (error)
 		return error;
 
-	res64.count = res32.count;
+	res32.count = res64.count;
+	NETBSD32PTR32(res32.contexts, res64.contexts);
+	/* XXX: missing copyout */
 
 	return copyout(arg, &res32, sizeof(res32));
 }
@@ -522,8 +521,8 @@ typedef struct drm_dma32 {
 	netbsd32_pointer_t request_indices;	  /**< Buffer information */
 	netbsd32_pointer_t request_sizes;
 	int granted_count;	                  /**< Number of buffers granted */
-} drm_dma32_t
-;
+} drm_dma32_t;
+
 static void 
 dma64to32(drm_dma32_t *d32, const struct drm_dma *d64)
 {
