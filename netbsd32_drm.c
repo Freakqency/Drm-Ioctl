@@ -391,10 +391,9 @@ compat_drm_markbufs(struct file *file, void *arg)
 }
 
 typedef struct drm_buf_info32 {
-	int count;		/**< Entries in list */
+	int count;		 /**< Entries in list */
 	netbsd32_pointer_t list;
 } drm_buf_info32_t;
-
 
 typedef struct drm_buf_pub32 {
 	int idx;		 /**< Index into the master buffer list */
@@ -565,7 +564,7 @@ compat_drm_dma(struct file *file, void *arg)
 }
 
 //XXX:i commented the below line for later use
-//#if IS_ENABLED(CONFIG_AGP)
+#if IS_ENABLED(CONFIG_AGP)
 typedef struct drm_agp_mode32 {
 	uint32_t mode;	/**< AGP mode */
 } drm_agp_mode32_t;
@@ -629,6 +628,125 @@ compat_drm_agp_info(struct file *file, void *arg)
 	return copyout(arg, &i32, sizeof(i32));
 
 }
+
+typedef struct drm_agp_buffer32 {
+	uint32_t size;	/**< In bytes -- will round to page boundary */
+	uint32_t handle;	/**< Used for binding / unbinding */
+	uint32_t type;	/**< Type of memory to allocate */
+	uint32_t physical;	/**< Physical used by i810 */
+} drm_agp_buffer32_t;
+
+static int 
+compat_drm_agp_alloc(struct file *file, void *arg)
+{
+	drm_agp_buffer32_t req32;
+	struct drm_agp_buffer req64;
+	int error;
+
+	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
+		return error;
+
+	req64.size = req32.size;
+	req64.type = req32.type;
+
+	error = drm_ioctl(file, DRM_IOCTL_AGP_ALLOC, &req64);
+	if (error)
+		return error;
+
+	req32.handle = req64.handle;
+	req32.physical = req64.physical;
+	
+	drm_ioctl(file, DRM_IOCTL_AGP_FREE, &req64);
+	
+	return copyout(arg, &req32, sizeof(req32));
+}
+
+static int 
+compat_drm_agp_free(struct file *file, void *arg)
+{
+	drm_agp_buffer32_t req32;
+	struct drm_agp_buffer req64;
+	int error;
+	uint32_t handle;
+		
+	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
+		return error;
+	
+	handle = req32.handle;
+	req64.handle = handle;
+
+	return drm_ioctl(file, DRM_IOCTL_AGP_FREE, &req64);
+}
+
+typedef struct drm_agp_binding32 {
+	uint32_t handle;	/**< From drm_agp_buffer */
+	uint32_t offset;	/**< In bytes -- will round to page boundary */
+} drm_agp_binding32_t;
+
+static int 
+compat_drm_agp_bind(struct file *file, void *arg)
+{
+	drm_agp_binding32_t req32;
+	struct drm_agp_binding req64;
+	int error;
+
+	if ((error = copyin(&req32, arg, sizeof(req32))) !=0 )
+		return error;
+	
+	req64.handle = req32.handle;
+	req64.offset = req32.offset;
+
+	return drm_ioctl(file, DRM_IOCTL_AGP_BIND, &req64);
+}
+
+static int 
+compat_drm_agp_unbind(struct file *file, void *arg)
+{
+	struct drm_agp_binding req64;
+	drm_agp_binding32_t req32;
+	uint32_t handle;
+	int error;
+
+	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
+		return error;
+
+	handle = req32.handle;
+	req64.handle = handle;
+
+	return drm_ioctl(file, DRM_IOCTL_AGP_UNBIND, &req64);
+}
+#endif /* CONFIG_AGP */
+
+typedef struct drm_scatter_gather32 {
+	uint32_t size;	/**< In bytes -- will round to page boundary */
+	uint32_t handle;	/**< Used for mapping / unmapping */
+} drm_scatter_gather32_t;
+
+static int 
+compat_drm_sg_alloc(struct file *file, void *arg)
+{
+	struct drm_scatter_gather req64;
+	drm_scatter_gather32_t req32;
+	int error;
+	unsigned long x;
+
+	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)	
+		return error;
+
+	x = req32.size;
+	req64.size = x;
+
+	error = drm_ioctl(file, DRM_IOCTL_SG_ALLOC, &req64);
+	if (error)
+		return error;
+
+	/* XXX not sure about the handle conversion here... */
+	x = req64.handle;
+	req32.handle = x >> PAGE_SHIFT;
+
+	return 0;
+}
+
 int
 netbsd32_drm_ioctl(struct file *file, unsigned long cmd, void *arg,
     struct lwp *l)
@@ -668,6 +786,16 @@ netbsd32_drm_ioctl(struct file *file, unsigned long cmd, void *arg,
 		return compat_drm_agp_enable(file, arg);
 	case DRM_IOCTL_AGP_INFO32:
 		return compat_drm_agp_info(file, arg);
+	case DRM_IOCTL_AGP_ALLOC32:
+		return compat_drm_agp_alloc(file,arg); 
+	case DRM_IOCTL_AGP_UNBIND32:
+		return compat_drm_agp_unbind(file, arg);
+	case DRM_IOCTL_AGP_BIND32:
+		return compat_drm_agp_bind(file, arg);
+	case DRM_IOCTL_AGP_FREE32:
+		return compat_drm_agp_free(file, arg); 
+	case DRM_IOCTL_SG_ALLOC32:
+		return compat_drm_sg_alloc(file, arg);
 	default:
 		return EINVAL;
 	}
