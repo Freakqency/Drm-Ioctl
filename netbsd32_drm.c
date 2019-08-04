@@ -747,6 +747,163 @@ compat_drm_sg_alloc(struct file *file, void *arg)
 	return 0;
 }
 
+static int
+compat_drm_sg_free(struct file *file, void *arg)
+{
+	struct drm_scatter_gather req64;
+	unsigned long x;
+	drm_scatter_gather_t req32;
+	int error;
+	
+	if((error = copyin(&req32, arg, sizeof(req32))) != 0)
+		return error;
+	
+	x = req32.handle;
+	req64.handle = x << PAGE_SHIFT;
+
+	return drm_ioctl(file, DRM_IOCTL_SG_FREE, &req64);
+}
+
+#if defined(CONFIG_X86) || defined(CONFIG_IA64)
+typedef struct drm_update_draw32 {
+	drm_drawable_t handle;
+	unsigned int type;
+	unsigned int num;
+	/* 64-bit version has a 32-bit pad here */
+	uint64_t data;	/**< Pointer */
+} __attribute__((packed)) drm_update_draw32_t;
+
+static void 
+update32to64(struct drm_update_draw *req64, const drm_update_draw32_t *update32)
+{
+	req64->handle = update32->handle;
+	req64->type = update32->type;
+	req64->num = update32->num;
+	req64->data = update32->data;
+}
+static int 
+compat_drm_update_draw(struct file *file, void *arg)
+{
+	drm_update_draw32_t update32;
+	struct drm_update_draw req64;
+	int error;
+	
+	if ((error = copyin(&update32, arg, sizeof(update32))) !=0)
+		return error;
+
+	update32to64(&req64, &update32);
+
+	error = drm_ioctl(file, DRM_IOCTL_UPDATE_DRAW, &req64);
+	return error;
+}
+#endif
+
+struct drm_wait_vblank_request32 {
+	enum drm_vblank_seq_type type;
+	unsigned int sequence;
+	uint32_t signal;
+};
+
+struct drm_wait_vblank_reply32 {
+	enum drm_vblank_seq_type type;
+	unsigned int sequence;
+	s32 tval_sec;
+	s32 tval_usec;
+};
+
+typedef union drm_wait_vblank32 {
+	struct drm_wait_vblank_request32 request;
+	struct drm_wait_vblank_reply32 reply;
+} drm_wait_vblank32_t;
+
+static void 
+req32to64(union drm_wait_vblank *req64, const drm_wait_vblank32_t *req32)
+{
+	req64->request.type = req32->request.type;
+	req64->request.sequence = req32->request.sequence;
+	req64->request.signal = req32->request.signal;
+}
+
+static void 
+req64to32(drm_wait_vblank32_t *req32, const union drm_wait_vblank *req64)
+{
+	req32->reply.sequence = req64->reply.sequence;
+	req32->reply.tval_sec = req64->reply.tval_sec;
+	req32->reply.tval_usec = req64->reply.tval_usec;
+}
+
+static int 
+compat_drm_wait_vblank(struct file *file, void *arg)
+{
+	drm_wait_vblank32_t req32;
+	union drm_wait_vblank req64;
+	int error;
+	
+	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
+		return error;
+
+	req32to64(&req64, &req32);
+
+	error = drm_ioctl(file, DRM_IOCTL_WAIT_VBLANK, &req64);
+	if (error)
+		return error;
+
+	req64to32(&req32, &req64);
+
+	return copyout(arg, &req32, sizeof(req32));
+}
+
+#if defined(CONFIG_X86) || defined(CONFIG_IA64)
+typedef struct drm_mode_fb_cmd232 {
+	uint32_t fb_id;
+	uint32_t width;
+	uint32_t height;
+	uint32_t pixel_format;
+	uint32_t flags;
+	uint32_t handles[4];
+	uint32_t pitches[4];
+	uint32_t offsets[4];
+	uint64_t modifier[4];
+} __attribute__((packed)) drm_mode_fb_cmd232_t;
+
+static void 
+map_req32to64(struct drm_mode_fb_cmd2 *req64, struct drm_mode_fb_cmd232 *req32) 
+{
+	req64->width = req32->width;
+	req64->height = req32->height;
+	req64->pixel_format = req32->pixel_format;
+	req64->flags = req32->flags;
+}
+
+static int 
+compat_drm_mode_addfb2(struct file *file, void *arg)
+{
+	struct drm_mode_fb_cmd232 req32;
+	struct drm_mode_fb_cmd2 req64;
+	int error;
+
+	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
+		return error;
+
+	map_req32to64(&req64, &req32);
+	
+	for (int i = 0; i < 4; i++){
+		req64.handles[i] = req32.handles[i];
+		req64.pitches[i] = req32.pitches[i];
+		req64.offsets[i] = req32.offsets[i];
+		req64.modifier[i] = req32.modifier[i];
+	}
+
+	error = drm_ioctl(file, DRM_IOCTL_MODE_ADDFB2, &req64);
+	if (error)
+		return error;
+
+	req32.fb_id = req64.fb_id;
+
+	return copyout(arg, &req32, sizeof(req32));
+}
+#endif
+
 int
 netbsd32_drm_ioctl(struct file *file, unsigned long cmd, void *arg,
     struct lwp *l)
@@ -796,6 +953,14 @@ netbsd32_drm_ioctl(struct file *file, unsigned long cmd, void *arg,
 		return compat_drm_agp_free(file, arg); 
 	case DRM_IOCTL_SG_ALLOC32:
 		return compat_drm_sg_alloc(file, arg);
+	case  DRM_IOCTL_MODE_ADDFB232:
+		return compat_drm_mode_addfb2(file, arg);
+	case DRM_IOCTL_WAIT_VBLANK32:
+		return compat_drm_wait_vblank(file, arg);
+	case DRM_IOCTL_UPDATE_DRAW32:
+		return compat_drm_update_draw(file, arg);
+	case DRM_IOCTL_SG_FREE32:
+		return compat_drm_sg_free(file, arg);   
 	default:
 		return EINVAL;
 	}
