@@ -143,7 +143,7 @@ compat_drm_setunique(struct file *file, void *arg)
 
 	// XXX: do we need copyout and copying the fields here?
 	uq32.unique_len = uq64.unique_len;
-	uq32.unique = NETBSD32PTR64(uq64.unique);
+	NETBSD32PTR32(uq32.unique, uq64.unique);
 
         return error;
 }
@@ -164,7 +164,7 @@ map32to64(struct drm_map *m64, const drm_map32_t *m32)
 	m64->size = m32->size;
 	m64->type = m32->type;
 	m64->flags = m32->flags;
-	m64->handle = NETBSD32PTR64(m64->handle);
+	m64->handle = NETBSD32PTR64(m32->handle);
 	m64->mtrr = m32->mtrr;
 }
 
@@ -175,7 +175,7 @@ map64to32(drm_map32_t *m32, const struct drm_map *m64)
 	m32->size = m64->size;
 	m32->type = m64->type;
 	m32->flags = m64->flags;
-	m32->handle = NETBSD32PTR32(m32->handle,m64->handle);
+	NETBSD32PTR32(m32->handle, m64->handle);
 	m32->mtrr = m64->mtrr;
 }
 
@@ -347,7 +347,6 @@ compat_drm_addbufs(struct file *file, void *arg)
 	drm_buf_desc32_t buf32;
 	struct drm_buf_desc buf64;
 	int error;
-	netbsd32_pointer_t agp_start;
 
 	if ((error = copyin(&buf32, arg, sizeof(buf32))) != 0)
 		return error;
@@ -357,17 +356,14 @@ compat_drm_addbufs(struct file *file, void *arg)
 		return error;
 #endif
 
-	// XXX: assign 32->64
-	agp_start = NETBSD32PTR32(buf32.agp_start);
-	buf64.agp_start = NETBSD32PTR32(agp_start);
+	buf64.agp_start = (unsigned long)NETBSD32PTR64(buf32.agp_start);
 
 	error = drm_ioctl(file, DRM_IOCTL_ADD_BUFS, &buf64);
 	if (error)
 		return error;
 
 	// XXX assign 64->32
-	agp_start = NETBSD3264(buf64.agp_start);
-	buf32.agp_start = agp_start;
+	NETBSD32PTR32(buf32.agp_start, (void *)buf64.agp_start);
 
 	return copyout(&buf32, arg, sizeof(buf32));
 }
@@ -425,8 +421,8 @@ compat_drm_freebufs(struct file *file, void *arg)
 	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
 		return error;
 
-	req32.count = req64.count;
-	req32.list = NETBSD32PTR64(req64.list);
+	req64.count = req32.count;
+	req64.list = NETBSD32PTR64(req32.list);
 
 	return drm_ioctl(file, DRM_IOCTL_FREE_BUFS, &req64);
 }
@@ -440,14 +436,14 @@ static int
 compat_drm_setsareactx(struct file *file, void *arg)
 {
 	drm_ctx_priv_map32_t req32;
-	struct drm_ctx_pric_map req64;
+	struct drm_ctx_priv_map req64;
 	int error;
 
 	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
 		return error;
 
-	req32.ctx_id = req64.ctx_id;
-	req32.handle = NETBSD32PTR64(req64.handle);
+	req64.ctx_id = req32.ctx_id;
+	req64.handle = NETBSD32PTR64(req32.handle);
 
 	return drm_ioctl(file, DRM_IOCTL_SET_SAREA_CTX, &req64);
 }
@@ -458,24 +454,18 @@ compat_drm_getsareactx(struct file *file, void *arg)
 	struct drm_ctx_priv_map req64;
 	drm_ctx_priv_map32_t req32;
 	int error;
-	unsigned int ctx_id;
-	netbsd32_pointer_t handle;
 
 	if ((error = copyin(&req32, arg, sizeof(req32))) != 0)
 		return error;
 
-	if ((error = access_ok(VERIFY_WRITE, arg, sizeof(arg))) != 0)
-		return error;
-
-	req32.ctx_id = ctx_id;
-	req64.ctx_id = ctx_id;
+	req64.ctx_id = req32.ctx_id;
 
 	error = drm_ioctl(file, DRM_IOCTL_GET_SAREA_CTX, &req64);
 	if (error)
 		return error;
 
-	handle = NETBSD32PTR64(req64.handle);
-	req32.handle = NETBSD32PTR64(handle);
+	NETBSD32PTR32(req32.handle, req64.handle);
+	// XXX: missing copyout?
 
 	return 0;
 }
@@ -495,14 +485,15 @@ compat_drm_resctx(struct file *file, void *arg)
 	if ((error = copyin(&res32, arg, sizeof(res32))) != 0)
 		return error;
 
-	res32.count = res64.count;
-	res32.contexts = NETBSD32PTR64(res64.contexts);
+	res64.count = res32.count;
+	res64.contexts = NETBSD32PTR64(res32.contexts);
 
 	error = drm_ioctl(file, DRM_IOCTL_RES_CTX, &res64);
 	if (error)
 		return error;
 
-	res64.count = res32.count;
+	res32.count = res64.count;
+	/* XXX: missing copyout */
 
 	return 0;
 }
@@ -518,18 +509,18 @@ typedef struct drm_dma32 {
 	netbsd32_pointer_t request_indices;	  /**< Buffer information */
 	netbsd32_pointer_t request_sizes;
 	int granted_count;	                  /**< Number of buffers granted */
-} drm_dma32_t
-;
+} drm_dma32_t;
+
 static void 
 dma64to32(drm_dma32_t *d32, const struct drm_dma *d64)
 {
 	d32->send_count = d64->send_count;
-	d32->send_indices = NETBSD32PTR32(d64->send_indices);
-	d32->send_sizes = NETBSD32PTR64(d64->send_sizes);
+	NETBSD32PTR32(d32->send_indices, d64->send_indices);
+	NETBSD32PTR32(d32->send_sizes, d64->send_sizes);
 	d32->flags = d64->flags;
-	d32->request_count = NETBSD32PTR64(d64->request_count);
-	d32->request_indices = NETBSD32PTR64(d64->request_indices);
-	d32->request_sizes = NETBSD32PTR64(d64->request_sizes);
+	NETBSD32PTR32(d32->request_count, d64->request_count);
+	NETBSD32PTR32(d32->request_indices, d64->request_indices);
+	NETBSD32PTR32(d32->request_sizes, d64->request_sizes);
 }
 
 static void 
