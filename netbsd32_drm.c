@@ -516,7 +516,7 @@ typedef struct drm_dma32 {
 	netbsd32_pointer_t send_sizes;		  /**< Lengths of data to send */
 	enum drm_dma_flags flags;		  /**< Flags */
 	netbsd32_pointer_t request_count;	  /**< Number of buffers requested */
-	int request_size;	 		   /**< Desired size for buffers */
+	int request_size;	 		  /**< Desired size for buffers */
 	netbsd32_pointer_t request_indices;	  /**< Buffer information */
 	netbsd32_pointer_t request_sizes;
 	int granted_count;	                  /**< Number of buffers granted */
@@ -630,9 +630,9 @@ compat_drm_agp_info(struct file *file, void *arg)
 }
 
 typedef struct drm_agp_buffer32 {
-	uint32_t size;	/**< In bytes -- will round to page boundary */
+	uint32_t size;		/**< In bytes -- will round to page boundary */
 	uint32_t handle;	/**< Used for binding / unbinding */
-	uint32_t type;	/**< Type of memory to allocate */
+	uint32_t type;		/**< Type of memory to allocate */
 	uint32_t physical;	/**< Physical used by i810 */
 } drm_agp_buffer32_t;
 
@@ -718,7 +718,7 @@ compat_drm_agp_unbind(struct file *file, void *arg)
 #endif /* CONFIG_AGP */
 
 typedef struct drm_scatter_gather32 {
-	uint32_t size;	/**< In bytes -- will round to page boundary */
+	uint32_t size;		/**< In bytes -- will round to page boundary */
 	uint32_t handle;	/**< Used for mapping / unmapping */
 } drm_scatter_gather32_t;
 
