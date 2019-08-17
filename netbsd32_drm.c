@@ -1,5 +1,5 @@
-
 #include <sys/cdefs.h>
+#include <sys/systm.h>
 __KERNEL_RCSID(0, "$NetBSD: drm_ioc32.c,v 1.2 2018/08/27 04:58:19 riastradh Exp $");
 
 #include <compat/netbsd32/netbsd32.h>
@@ -46,8 +46,6 @@ __KERNEL_RCSID(0, "$NetBSD: drm_ioc32.c,v 1.2 2018/08/27 04:58:19 riastradh Exp 
 
 #define DRM_IOCTL_MODE_ADDFB232		DRM_IOWR(0xb8, drm_mode_fb_cmd232_t)
 
-// Compat DRM Version Implementation
-
 typedef struct {
 	int version_major;		/**< Major version */
 	int version_minor;	  	/**< Minor version */
@@ -60,10 +58,9 @@ typedef struct {
 	netbsd32_pointer_t desc;  	/**< User-space buffer to hold desc */
 } drm_version32_t;
 
-static int
+static int 
 compat_drm_version(struct file *file, void *arg)
 {
-
 	drm_version32_t v32;
 	struct drm_version v64;
 	int error;
@@ -78,14 +75,13 @@ compat_drm_version(struct file *file, void *arg)
 	v64.desc_len = v32.desc_len;
 	v64.desc = NETBSD32PTR64(v32.desc);
 
-	error = drm_ioctl(file, DRM_IOCTL_VERSION, &v64);
+	error = drm_ioctl(file,DRM_IOCTL_VERSION, &v64);
 	if (error)
 		return error;
 
 	v32.version_major = v64.version_major;
 	v32.version_minor = v64.version_minor;
 	v32.version_patchlevel = v64.version_patchlevel;
-	/* strings have already been copied in place */
 	v32.name_len = v64.name_len;
 	v32.date_len = v64.date_len;
 	v32.desc_len = v64.desc_len;
@@ -752,7 +748,7 @@ compat_drm_sg_free(struct file *file, void *arg)
 {
 	struct drm_scatter_gather req64;
 	unsigned long x;
-	drm_scatter_gather_t req32;
+	drm_scatter_gather32_t req32;
 	int error;
 	
 	if((error = copyin(&req32, arg, sizeof(req32))) != 0)
@@ -910,6 +906,7 @@ netbsd32_drm_ioctl(struct file *file, unsigned long cmd, void *arg,
 {
 	switch (cmd) {
 	case DRM_IOCTL_VERSION32:
+		printf("Called Version32");
 		return compat_drm_version(file, arg);
 	case DRM_IOCTL_GET_UNIQUE32:
 		return compat_drm_getunique(file, arg);
